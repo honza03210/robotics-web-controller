@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gesture Detector</title>
+<style>
+  body { font-family: sans-serif; padding: 20px; }
+  #gesture { font-size: 2em; margin-top: 20px; color: green; }
+  button { padding: 10px 20px; font-size: 1em; margin-top: 10px; }
+</style>
+</head>
+<body>
+<h1>Mobile Gesture Detector</h1>
+<p>Move your phone to perform a gesture. The detected gesture will appear below:</p>
+<button id="startBtn">Start Capturing</button>
+<div id="gesture">Waiting...</div>
+
+<script>
+const INPUT_TIME_STEPS = 100;
+let samples = [];
+let capturing = false;
+
+const gestureDiv = document.getElementById('gesture');
+const startBtn = document.getElementById('startBtn');
+
+// Prediction URL (same server)
+const SERVER_URL = "/predict";
+
+startBtn.addEventListener('click', () => {
+    if (capturing) return;
+    capturing = true;
+    samples = [];
+    gestureDiv.textContent = "Capturing...";
+
+    // iOS 13+ permission
+    if (typeof DeviceMotionEvent.requestPermission === 'function') {
+        DeviceMotionEvent.requestPermission()
+            .then(response => {
+                if (response === 'granted') {
+                    window.addEventListener('devicemotion', captureMotion);
+                } else {
+                    gestureDiv.textContent = "Permission denied";
+                    capturing = false;
+                }
+            }).catch(console.error);
+    } else {
+        window.addEventListener('devicemotion', captureMotion);
+    }
+});
+
+function captureMotion(event) {
+    const { x=0, y=0, z=0 } = event.acceleration || {};
+    const alpha = event.rotationRate?.alpha || 0;
+    const beta = event.rotationRate?.beta || 0;
+    const gamma = event.rotationRate?.gamma || 0;
+
+    samples.push({x, y, z, alpha, beta, gamma});
+
+    if (samples.length >= INPUT_TIME_STEPS) {
+        window.removeEventListener('devicemotion', captureMotion);
+        sendToServer(samples);
+        capturing = false;
+    }
+}
+
+function sendToServer(samples) {
+    fetch(SERVER_URL, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({samples})
+    })
+    .then(res => res.json())
+    .then(data => {
+        gestureDiv.textContent = data.prediction || "Unknown";
+        console.log(data);
+    })
+    .catch(err => {
+        gestureDiv.textContent = "Error";
+        console.error(err);
+    });
+}
+</script>
+</body>
+</html>
