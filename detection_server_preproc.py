@@ -2,25 +2,24 @@ from flask import Flask, request, jsonify, render_template_string
 import numpy as np
 from tensorflow.keras.models import load_model
 import pickle
-
-from zeroconf import ServiceInfo, Zeroconf
-import socket
-
-zeroconf = Zeroconf()
-
-hostname = socket.gethostname()
-ip_address = socket.gethostbyname(hostname)
+import logging
 
 
-ip = socket.inet_aton(ip_address)  # or your local IP
-info = ServiceInfo(
-    "_http._tcp.local.",
-    "gesture._http._tcp.local.",
-    addresses=[socket.inet_aton(ip_address)],
-    port=8080,
-)
+# zeroconf = Zeroconf()
 
-zeroconf.register_service(info)
+# hostname = socket.gethostname()
+# ip_address = socket.gethostbyname(hostname)
+
+
+# ip = socket.inet_aton(ip_address)  # or your local IP
+# info = ServiceInfo(
+#     "_http._tcp.local.",
+#     "gesture._http._tcp.local.",
+#     addresses=[socket.inet_aton(ip_address)],
+#     port=8080,
+# )
+
+# zeroconf.register_service(info)
 
 app = Flask(__name__)
 
@@ -40,30 +39,99 @@ HTML_PAGE = """
 <head>
     <title>Live Gesture Recognition</title>
     <style>
-        body { font-family: Arial; text-align: center; margin-top: 50px; transition: background-color 0.3s; }
-        button { padding: 20px; font-size: 24px; margin-top: 20px; cursor: pointer; }
-        p { font-size: 28px; margin-top: 30px; }
-        
-        /* New styles for the big gesture display */
-        #gestureDisplay {
-            transition: all 0.3s ease;
-        }
-        .big-text {
-            font-size: 100px !important;
-            font-weight: bold;
-            color: #4CAF50;
-            display: block;
-            margin-top: 40px;
-            text-transform: uppercase;
-        }
-    </style>
+    * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+    }
+
+    html, body {
+        font-family: "Segoe UI", Roboto, Arial, sans-serif;
+        width: 100%;
+        height: 100%;
+        background-color: #121212;  /* dark background */
+        color: #ffffff;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+    }
+
+    .card {
+        width: 100%;
+        height: 100vh;
+        padding: 6vw;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        text-align: center;
+    }
+
+    h1 {
+        font-size: 8vw;  /* scales on phone */
+        font-weight: 700;
+        letter-spacing: 1px;
+        margin-bottom: 3vw;
+    }
+
+    p {
+        font-size: 4.5vw;
+        opacity: 0.8;
+        margin-top: 2vw;
+    }
+
+    button {
+        margin-top: 5vw;
+        padding: 5vw 0;
+        width: 100%;
+        max-width: 400px;
+        font-size: 5vw;
+        font-weight: 600;
+        border: none;
+        border-radius: 14px;
+        background-color: #1f1f1f;
+        color: #00ffcc;
+        cursor: pointer;
+        transition: transform 0.2s ease;
+    }
+
+    button:hover {
+        transform: scale(1.02);
+    }
+
+    button:active {
+        transform: scale(0.98);
+    }
+
+    #status {
+        margin-top: 3vw;
+        font-size: 4vw;
+        opacity: 0.7;
+    }
+
+    #gestureDisplay {
+        margin-top: 6vw;
+        font-size: 12vw;  /* huge on phone */
+        font-weight: 800;
+        color: #00ffcc;
+        transition: all 0.2s ease;
+    }
+
+    .big-text {
+        font-size: 18vw !important;
+        color: #00ffcc;
+    }
+</style>
 </head>
 <body>
+    <div class="card">
     <h1>Live Gesture Recognition</h1>
     <p>Enable motion sensors and move your device!</p>
     <button id="enableSensorsBtn">Enable Motion Sensors</button>
     <p id="status"></p>
-    <p>Predicted Gesture: <span id="gestureDisplay">None</span></p>
+    <p>Predicted Gesture:</p>
+    <span id="gestureDisplay">None</span>
+    </div>
 
 <script>
 let permissionGranted = false;
@@ -262,6 +330,7 @@ window.addEventListener("devicemotion", (event)=>{
     }
 });
 </script>
+
 </body>
 </html>
 """
@@ -303,4 +372,4 @@ def predict():
 
 if __name__ == "__main__":
     # ssl_context='adhoc' generates a temporary certificate for HTTPS
-    app.run(host="0.0.0.0", port=8080, ssl_context='adhoc')
+    app.run(host="0.0.0.0", port=8000, ssl_context='adhoc', debug=False)
