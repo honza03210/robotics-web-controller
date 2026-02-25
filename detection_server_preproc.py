@@ -3,6 +3,25 @@ import numpy as np
 from tensorflow.keras.models import load_model
 import pickle
 
+from zeroconf import ServiceInfo, Zeroconf
+import socket
+
+zeroconf = Zeroconf()
+
+hostname = socket.gethostname()
+ip_address = socket.gethostbyname(hostname)
+
+
+ip = socket.inet_aton(ip_address)  # or your local IP
+info = ServiceInfo(
+    "_http._tcp.local.",
+    "gesture._http._tcp.local.",
+    addresses=[socket.inet_aton(ip_address)],
+    port=8080,
+)
+
+zeroconf.register_service(info)
+
 app = Flask(__name__)
 
 # Load trained model and label encoder
@@ -21,9 +40,22 @@ HTML_PAGE = """
 <head>
     <title>Live Gesture Recognition</title>
     <style>
-        body { font-family: Arial; text-align: center; margin-top: 50px; }
-        button { padding: 20px; font-size: 24px; margin-top: 20px; }
+        body { font-family: Arial; text-align: center; margin-top: 50px; transition: background-color 0.3s; }
+        button { padding: 20px; font-size: 24px; margin-top: 20px; cursor: pointer; }
         p { font-size: 28px; margin-top: 30px; }
+        
+        /* New styles for the big gesture display */
+        #gestureDisplay {
+            transition: all 0.3s ease;
+        }
+        .big-text {
+            font-size: 100px !important;
+            font-weight: bold;
+            color: #4CAF50;
+            display: block;
+            margin-top: 40px;
+            text-transform: uppercase;
+        }
     </style>
 </head>
 <body>
@@ -35,9 +67,18 @@ HTML_PAGE = """
 
 <script>
 let permissionGranted = false;
+let isPaused = false; 
 let buffer = [];
 const alphaSmooth = 0.2;
 let lastSample = {x:0,y:0,z:0,alpha:0,beta:0,gamma:0};
+
+// --- New Endpointing Variables ---
+let isMoving = false;
+let quietFrames = 0;
+const MOVEMENT_THRESHOLD = 0.3; // Must exceed this to start gesture (matches your crop threshold)
+const QUIET_FRAMES_LIMIT = 20;  // How many frames of stillness before concluding the gesture is done
+// ---------------------------------
+
 const status = document.getElementById("status");
 const display = document.getElementById("gestureDisplay");
 const enableBtn = document.getElementById("enableSensorsBtn");
@@ -130,7 +171,11 @@ function resample(samples, targetLength=100){
 
 // Capture live motion
 function sendBufferForPrediction(){
-    if(buffer.length<10) return;
+    if(buffer.length < 10) {
+        buffer = [];
+        return; 
+    }
+    
     let processed = cropRecording(buffer);
     processed = resample(processed, 100);
 
@@ -140,13 +185,31 @@ function sendBufferForPrediction(){
         body:JSON.stringify({samples:processed})
     })
     .then(res=>res.json())
-    .then(res=>{ display.textContent = res.predicted_gesture; })
+    .then(res=>{ 
+        const gesture = res.predicted_gesture;
+        display.textContent = gesture; 
+        
+        // Pause and show big text if it's a real gesture
+        if (gesture && gesture.toLowerCase() !== "noise" && gesture !== "No data") {
+            isPaused = true; 
+            display.classList.add("big-text");
+            
+            setTimeout(() => {
+                display.classList.remove("big-text");
+                display.textContent = "None";
+                buffer = []; 
+                isPaused = false; 
+            }, 500);
+        }
+    })
     .catch(err=>{ console.error(err); });
+    
     buffer = [];
 }
 
 window.addEventListener("devicemotion", (event)=>{
-    if(!permissionGranted) return;
+    if(!permissionGranted || isPaused) return; 
+    
     let sample = {
         x: event.acceleration.x || 0,
         y: event.acceleration.y || 0,
@@ -158,13 +221,62 @@ window.addEventListener("devicemotion", (event)=>{
     sample = correctAxes(sample);
     sample = normalizeSample(sample);
     sample = smoothSample(sample);
-    buffer.push(sample);
-    if(buffer.length>=50){ sendBufferForPrediction(); }
+    
+    // Calculate motion magnitude (how hard the phone is moving)
+    let mag = Math.sqrt(sample.x**2 + sample.y**2 + sample.z**2);
+
+    if (!isMoving) {
+        // Keep a small rolling buffer of 15 frames so we don't lose the very beginning of the movement
+        buffer.push(sample);
+        if (buffer.length > 15) buffer.shift();
+
+        // If the movement spikes above threshold, lock in and start recording
+        if (mag > MOVEMENT_THRESHOLD) {
+            isMoving = true;
+            quietFrames = 0;
+        }
+    } else {
+        // We are currently actively recording a gesture
+        buffer.push(sample);
+
+        // Check if movement is dying down
+        if (mag < MOVEMENT_THRESHOLD) {
+            quietFrames++;
+        } else {
+            quietFrames = 0; // Reset quiet counter if movement spikes again
+        }
+
+        // If it's been quiet for enough frames, the gesture is officially done
+        if (quietFrames >= QUIET_FRAMES_LIMIT) {
+            sendBufferForPrediction(); 
+            isMoving = false;
+            quietFrames = 0;
+        }
+        
+        // Failsafe: if the gesture takes way too long (e.g., someone shaking the phone forever), force a prediction
+        if (buffer.length > 250) {
+            sendBufferForPrediction();
+            isMoving = false;
+            quietFrames = 0;
+        }
+    }
 });
 </script>
 </body>
 </html>
 """
+
+COMMAND_MAP =  {"flick_front": None,
+                "flick_right": None,
+                "flick_left": None,
+                "flick_back": None,
+                "noise": None}
+def send_robot_command(gesture: str):
+    if not COMMAND_MAP[gesture]:
+        print("no known command for gesture: " + gesture)
+        return
+    COMMAND_MAP[gesture]()
+
 
 @app.route("/")
 def index():
@@ -183,7 +295,12 @@ def predict():
     # Predict
     pred_probs = model.predict(X, verbose=0)
     pred_label = label_encoder.inverse_transform([np.argmax(pred_probs)])[0]
+    print(pred_label)
+    if pred_label != "noise":
+        send_robot_command(pred_label)
+
     return jsonify({"predicted_gesture": pred_label})
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=6666)
+    # ssl_context='adhoc' generates a temporary certificate for HTTPS
+    app.run(host="0.0.0.0", port=8080, ssl_context='adhoc')

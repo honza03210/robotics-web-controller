@@ -1,0 +1,6 @@
+Almost fully chatgpt generated code, but works pretty nicely.
+
+At this moment detection_server_preproc.py is the most important - it uses the trained model to predict the gesture sent from the client and then uses that info to call robot move functions;
+
+
+If you were to train your own model, you can use/edit the learning.py - it creates a flask website, that allows you to record samples of the gestures and submit them to the server which stores them all in a json. After recording enough data (even 40 samples per gesture worked surprisingly well (on the same device)) you should use resample.py to resample all of the recordings to 100 samples. After that just run model_training.py which will (obviously) train the model on the resamples json. Finally, you can run the detection_server_preproc.py - it will run the server on your port 8080 with a self signed certificate, so you just need to be on the same LAN as the phone and use the LAN IP address of the server to connect to the website from your phone (https://x.x.x.x:8080). 
