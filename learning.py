@@ -212,4 +212,4 @@ def download():
     return send_file(DATA_FILE, as_attachment=True)
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=6666)
+    app.run(host="0.0.0.0", port=8080, debug=False, ssl_context='adhoc')
